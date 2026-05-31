@@ -1,0 +1,390 @@
+% This is my_paper.tex for ICONIP 2026
+% Based on LLNCS template
+% Occluded Pig Pose Estimation Based on Neural Discrete Representation Learning
+
+\documentclass[runningheads]{llncs}
+%
+\usepackage[T1]{fontenc}
+% T1 fonts will be used to generate the final print and online PDFs,
+% so please use T1 fonts in your manuscript whenever possible.
+% Other font encodings may result in incorrect characters.
+%
+\usepackage{graphicx}
+% Used for displaying figures. If possible, figure files should
+% be included in EPS format.
+%
+\usepackage{amsmath}
+% For mathematical equations and symbols
+%
+\usepackage{amssymb}
+% Additional mathematical symbols
+%
+\usepackage{booktabs}
+% For professional tables (three-line tables)
+%
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+% For algorithm descriptions
+%
+% If you use the hyperref package, please uncomment the following two lines
+% to display URLs in blue roman font according to Springer's eBook style:
+\usepackage{color}
+\renewcommand\UrlFont{\color{blue}\rmfamily}
+%
+\begin{document}
+%
+\title{Occlusion-stable Single-View 3D Pig Reconstruction via Keypoint Completion and Skeleton-Joint-Angle Constraint}
+%
+\titlerunning{Occlusion-stable 3D Pig Reconstruction}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
+%
+\author{Ge Wang\inst{1,2}\orcidID{0000-0000-0000-0000} \and
+Tao Zhu\inst{1,2} \and
+Fuchuan Ni\inst{1,2}}
+%
+\authorrunning{G. Wang et al.}
+% First names are abbreviated in the running head.
+% If there are more than two authors, 'et al.' is used.
+%
+\institute{Key Laboratory of Smart Farming Technology, Ministry of Agriculture and Rural Affairs, Wuhan 430070, China \and
+College of Informatics, Huazhong Agricultural University, Wuhan 430070, China\\
+\email{fcni\_cn@mail.hzau.edu.cn}}
+%
+\maketitle              % typeset the header of the contribution
+%
+\begin{abstract}
+Single-view 3D reconstruction of pigs provides structural cues for pose analysis and intelligent livestock monitoring. However, images captured in real pig farms often suffer from self-occlusion, inter-individual occlusion, and fence occlusion, which lead to missing 2D keypoints and unstable pose regression. These problems may further result in abnormal local rotations and implausible limb configurations. We propose an occlusion-stable single-view 3D pig reconstruction framework that integrates a mask-based keypoint fusion mechanism, termed Discrete Latent Pose Completion Module (DLPCM), and a Skeleton-joint-angle constraint (SC). DLPCM is adapted from neural discrete representation learning for occluded pig pose estimation. Instead of treating DLPCM as a standalone 2D pose estimator, the proposed framework uses it only to complete occluded keypoints, while visible keypoints are retained from the SMALP keypoint branch. SC imposes a weak Skeleton-joint-angle prior on major limb joints in the local pose-parameter space of SMALP. SC does not include bone-length or skeletal-scale constraints. Since dense 3D ground truth is difficult to obtain in real pig-farm images, the proposed method is evaluated from three complementary aspects: keypoint projection accuracy, silhouette consistency, and pose-parameter plausibility. Experiments show that DLPCM improves PCK from 61.85\% to 66.73\% and IoU from 64.04\% to 67.90\%, while reducing the Joint Rotation Violation Rate (JRVR) from 69.74\% to 24.34\%. SC further reduces abnormal local rotations, and the combined model achieves the lowest JRVR of 9.38\% while maintaining competitive PCK and IoU. These results indicate that DLPCM mainly improves occluded structural observations, whereas SC improves pose plausibility, leading to a better trade-off between projection consistency and pose plausibility under occlusion.
+
+\keywords{Pig \and single-view 3D reconstruction \and occluded keypoint completion \and Skeleton-joint-angle constraint \and pose plausibility.}
+\end{abstract}
+%
+%
+\section{Introduction}
+\label{sec:introduction}
+
+With the development of large-scale and intensive pig farming, automatic perception of pig growth status, behavioral changes, and health conditions has become an important topic in intelligent livestock farming. Traditional manual inspection is labor-intensive, lacks continuous monitoring capability, and may cause stress responses in pigs, making it difficult to meet the requirements of refined management in modern pig farms~\cite{ref1,ref2,ref3}. In recent years, machine vision, deep learning, and 3D perception technologies have been increasingly applied to pig detection, pose estimation, behavior recognition, body-size measurement, and health monitoring, providing effective tools for non-contact phenotypic information acquisition~\cite{ref4,ref5,ref6,ref7,ref8}. Compared with 2D images, 3D pig reconstruction can more completely represent body shape, limb connectivity, and spatial pose variation, providing richer geometric information for pose analysis, behavior recognition, body-size measurement, and health assessment~\cite{ref8,ref9,ref10}. Nevertheless, 3D reconstruction of pigs still faces challenges caused by occlusion, including inaccurate keypoint prediction and unstable pose reconstruction, which limits its applicability in real farming scenarios.
+
+Animal 3D reconstruction methods mainly include depth-sensing-based point-cloud reconstruction, multi-view geometric reconstruction, and single-view 3D reconstruction. Depth cameras or RGB-D sensors can directly acquire depth information and recover animal spatial structures through point-cloud registration, filtering, segmentation, and surface reconstruction. Such methods have been applied to 3D perception and body-size measurement of livestock such as pigs, cattle, and sheep~\cite{ref11}. PointNet++~\cite{ref12} and its improved point-cloud segmentation networks~\cite{ref13,ref14} have been used for animal point-cloud feature extraction, body-part segmentation, and phenotypic trait analysis. However, depth-sensing methods usually have strict requirements for sensor placement, acquisition distance, and point-cloud completeness. In complex pig-farm environments with dust, water vapor, fence occlusion, and group aggregation, point clouds are prone to missing data and local noise, which affects the stability of 3D phenotypic extraction.
+
+Multi-view geometric reconstruction methods usually employ multiple cameras to synchronously capture target images from different viewpoints and recover 3D keypoints or skeletons through camera calibration, 2D keypoint detection, cross-view matching, and triangulation. Markerless 3D pose-estimation methods such as DeepLabCut3D~\cite{ref15}, Anipose~\cite{ref16}, and 3D-MuPPET~\cite{ref17} have achieved good results in animal behavior analysis and motion-trajectory recovery. An et al.~\cite{ref18} used multi-view images and pig surface mesh models to achieve 3D surface motion capture of multiple freely moving pigs. Although these methods have advanced animal 3D structure recovery, they usually rely on multi-camera deployment, synchronized acquisition, and accurate calibration. Their requirements for cross-view keypoint visibility also limit their deployment cost and adaptability in large-scale pig farms.
+
+Compared with depth-sensing and multi-view reconstruction methods, single-view 3D reconstruction requires only a single RGB image as input. It has advantages in low equipment cost, flexible deployment, and compatibility with existing pig-house monitoring systems. The development of parametric models has promoted single-view 3D animal reconstruction. The SMPL model proposed by Loper et al.~\cite{ref19} provides a unified parametric representation for non-rigid 3D shape and pose modeling, while the SMAL model proposed by Zuffi et al.~\cite{ref20} enables parametric modeling of 3D shape and pose for quadruped animals. Based on these models, researchers have studied parametric 3D reconstruction for different animal species. Zuffi et al.~\cite{ref21,ref22} recovered 3D animal meshes from images and videos, achieving pose, shape, and texture estimation for quadrupeds such as zebras. Biggs et al.~\cite{ref23} and Li et al.~\cite{ref24} further studied joint estimation of animal pose and shape, improving the stability of single-view animal reconstruction. Rüegg et al.~\cite{ref25,ref26} developed breed-aware 3D shape regression methods for dogs, improving species-specific reconstruction accuracy. These studies show that parametric-model-based single-view 3D reconstruction can introduce shape and pose priors under limited visual observations and recover 3D animal structures with stable topology.
+
+Existing single-view 3D animal reconstruction studies mainly focus on animals such as dogs and zebras, while research on pigs, an important economic animal, remains relatively limited. In real pig houses, self-occlusion, inter-individual occlusion, and fence occlusion are common. These factors can cause missing 2D keypoints, silhouettes, and local texture information, leading to unstable 3D pose regression and implausible results such as backward-bending joints, excessive rotations, and local twisting. For pig-farm images without dense 3D mesh annotations, it is insufficient to claim improvement in absolute 3D geometric accuracy. A more reasonable evaluation strategy is to jointly examine 2D projection consistency, silhouette matching, and structural plausibility in the pose-parameter space. Based on this problem setting, we propose a single-view 3D pig reconstruction method that integrates occluded keypoint completion and Skeleton-joint-angle constraint. The proposed method uses DLPCM to recover structural information of occluded keypoints and introduces a local Skeleton-joint-angle constraint to suppress abnormal poses, thereby improving structural completeness and pose plausibility under occlusion.
+
+\subsection{Main Contributions}
+
+The main contributions of this paper are as follows:
+
+\begin{enumerate}
+\item An occlusion-oriented single-view 3D pig reconstruction framework is proposed by combining occluded keypoint completion with a parametric 3D pig model, aiming to improve the completeness of 2D structural observations used for 3D pose regression under occlusion.
+
+\item A mask-based keypoint fusion mechanism, termed DLPCM, is integrated into the SMALP reconstruction framework by adapting neural discrete representation learning for occluded pig pose estimation~\cite{ref28}. Different from directly using codebook-reconstructed keypoints for all body parts, DLPCM preserves the original SMALP predictions for visible keypoints and uses discrete latent pose completion only for occluded keypoints.
+
+\item A Skeleton-joint-angle constraint in the local pose-parameter space is introduced to restrict abnormal local rotations and reduce implausible poses such as backward bending, excessive rotation, and local twisting.
+
+\item Experiments on an occluded pig image dataset are conducted, including keypoint prediction, ablation studies, weight-sensitivity analysis, and qualitative visualization. The effects and complementarity of DLPCM and SC are analyzed from keypoint projection accuracy, silhouette consistency, and pose plausibility.
+\end{enumerate}
+
+%
+\section{Related Work}
+\label{sec:related}
+
+% TODO: Add related work content
+Related work section goes here. Discuss:
+\begin{itemize}
+\item 3D animal pose estimation
+\item Occlusion handling in pose estimation
+\item Discrete representation learning
+\item Skeleton-based constraints
+\end{itemize}
+
+%
+\section{Method}
+\label{sec:method}
+
+This section describes the proposed method.
+
+\subsection{Overview}
+
+% TODO: Add method overview
+The overall framework consists of two main components: DLPCM and SC.
+
+\subsection{Discrete Latent Pose Completion Module (DLPCM)}
+\label{subsec:dlpcm}
+
+% TODO: Add DLPCM description
+The DLPCM is designed to complete occluded keypoints using a learned discrete 
+pose codebook.
+
+\subsubsection{Pose Codebook}
+
+% TODO: Add pose codebook details
+The pose codebook is defined as:
+\begin{equation}
+\mathcal{Z} = \{z_k\}_{k=1}^{K}
+\label{eq:codebook}
+\end{equation}
+
+where $K$ is the codebook size and $z_k$ are the codebook vectors.
+
+\subsubsection{Vector Quantization}
+
+% TODO: Add vector quantization details
+Vector quantization is performed as:
+\begin{equation}
+z_q = z_{\arg\min_k \|z_e - z_k\|}
+\label{eq:vq}
+\end{equation}
+
+\subsubsection{Mask-Based Fusion}
+
+% TODO: Add mask-based fusion details
+The visibility mask $M_v$ is used to distinguish visible and occluded keypoints:
+\begin{equation}
+\hat{K} = M_v \odot K_{SMALP} + (1 - M_v) \odot K_{DLPCM}
+\label{eq:fusion}
+\end{equation}
+
+where $\odot$ denotes element-wise multiplication.
+
+\subsection{Skeleton-Joint-Angle Constraint (SC)}
+\label{subsec:sc}
+
+% TODO: Add SC description
+The SC constrains joint angles to plausible ranges based on biomechanical knowledge.
+
+\subsubsection{Joint-Angle Constraint}
+
+% TODO: Add joint-angle constraint details
+For each constrained joint $j$, the constraint is defined as:
+\begin{equation}
+\mathcal{L}_{SC} = \sum_{j \in \mathcal{J}} \max(0, a_j - a_j^{\max})^2
+\label{eq:sc_loss}
+\end{equation}
+
+where $a_j$ is the joint angle and $a_j^{\max}$ is the maximum allowed angle.
+
+\subsubsection{Biomechanical Validation}
+
+% TODO: Add biomechanical validation details
+The joint-angle thresholds are validated against literature values.
+
+%
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{Dataset and Setup}
+\label{subsec:dataset}
+
+% TODO: Add dataset description
+Dataset description goes here.
+
+\subsection{Evaluation Metrics}
+\label{subsec:metrics}
+
+% TODO: Add evaluation metrics
+We use the following metrics:
+\begin{itemize}
+\item PCK@0.1: Percentage of Correct Keypoints
+\item IoU: Intersection over Union
+\item JRVR: Joint Rotation Validity Rate
+\end{itemize}
+
+\subsection{Results}
+\label{subsec:results}
+
+To verify the effectiveness of the proposed method, the experiments are organized in a progressive manner. First, 2D occluded keypoint prediction experiments are used to evaluate whether DLPCM can provide more reliable keypoint estimates under occlusion. Second, 3D reconstruction ablation experiments are conducted to analyze whether the completed occluded keypoints improve SMALP reconstruction. Finally, the effect of SC is evaluated from pose-parameter plausibility and qualitative visualization. Since dense 3D ground truth is unavailable in real pig-farm images, the 3D reconstruction results are interpreted mainly from 2D projection consistency, silhouette consistency, and pose plausibility.
+
+As shown in Table~\ref{tab:results}, DLPCM improves PCK from 61.85\% to 66.73\% and IoU from 64.04\% to 67.90\%, while reducing JRVR from 69.74\% to 24.34\%. SC further reduces abnormal local rotations, achieving the lowest JRVR of 9.38\% while maintaining competitive PCK and IoU. These results indicate that DLPCM mainly improves occluded structural observations, whereas SC improves pose plausibility, leading to a better trade-off between projection consistency and pose plausibility under occlusion.
+
+\begin{table}
+\caption{3D Reconstruction Results}
+\label{tab:results}
+\begin{tabular}{lccc}
+\toprule
+Method & PCK@0.1 (\%) & IoU (\%) & JRVR (\%) \\
+\midrule
+Baseline & 61.85 & 64.04 & 69.74 \\
++DLPCM & 66.73 & 67.90 & 24.34 \\
++SC & 64.79 & 66.32 & 12.50 \\
++DLPCM+SC & 64.91 & 66.05 & 9.38 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Ablation Study}
+\label{subsec:ablation}
+
+% TODO: Add ablation study
+Ablation study goes here.
+
+\subsection{Sensitivity Analysis}
+\label{subsec:sensitivity}
+
+% TODO: Add sensitivity analysis
+Sensitivity analysis goes here.
+
+%
+\section{Limitations and Future Work}
+\label{sec:limitations}
+
+% TODO: Add limitations and future work
+This section discusses the limitations of the proposed method and potential 
+future directions:
+
+\begin{itemize}
+\item The Skeleton-joint-angle constraint thresholds are empirically set based 
+on the current pig dataset and may require adjustment for other pig breeds, 
+ages, or body conditions.
+\item The generalization of SC to diverse pig populations and its transferability 
+across different farming environments require further validation.
+\item Future work could explore: (1) extending to multi-pig scenarios, 
+(2) improving real-time performance, (3) incorporating temporal information.
+\end{itemize}
+
+%
+\section{Conclusion}
+\label{sec:conclusion}
+
+% TODO: Add conclusion
+Conclusion goes here. Summarize:
+\begin{itemize}
+\item Main contributions
+\item Key findings
+\item Potential impact
+\end{itemize}
+
+%
+\begin{credits}
+\subsubsection{\ackname} 
+This study was funded by [Grant information if applicable].
+
+\subsubsection{\discintname}
+The authors have no competing interests to declare that are relevant to the 
+content of this article.
+\end{credits}
+
+%
+% ---- Bibliography ----
+%
+% BibTeX users should specify bibliography style 'splncs04'.
+% References will then be sorted and formatted in the correct style.
+%
+% \bibliographystyle{splncs04}
+% \bibliography{mybibliography}
+%
+\begin{thebibliography}{99}
+
+\bibitem{ref1}
+Li, B.M., Wang, Y., Zheng, W.C., et al.: Research progress on intelligent equipment and information technology for livestock and poultry farming. Journal of South China Agricultural University \textbf{42}(6), 1--15 (2021)
+
+\bibitem{ref2}
+Yang, L., Wang, H., Chen, R.P., et al.: Research progress of intelligent pig farming factories. Journal of South China Agricultural University \textbf{44}(2), 1--12 (2023)
+
+\bibitem{ref3}
+Guo, Y.Y., Du, S.Z., Qiao, Y.L., et al.: Research and application progress of deep learning in intelligent livestock farming. Smart Agriculture \textbf{5}(1), 1--18 (2023)
+
+\bibitem{ref4}
+Zhang, J.L., Zhuang, Y.R., Zhou, K., et al.: Design and experiment of a fattening pig grouping system based on machine vision. Transactions of the Chinese Society of Agricultural Engineering \textbf{36}(17), 196--203 (2020)
+
+\bibitem{ref5}
+Yao, Y.P., Xu, C., Chen, H.J., et al.: Pig body-size estimation based on keypoint detection and multi-object tracking. Journal of South China Agricultural University \textbf{45}(5), 722--729 (2024)
+
+\bibitem{ref6}
+Hu, Z.X., Xiang, L., Yang, B., et al.: Multi-view voxel-based 3D skeleton reconstruction for pig lameness detection. Transactions of the Chinese Society of Agricultural Engineering \textbf{45}(5), 703--715 (2024)
+
+\bibitem{ref7}
+Liu, L.S., Liu, L., Zhou, J., et al.: Research progress on intelligent perception technologies for precision sow farming. Journal of South China Agricultural University \textbf{45}(5), 690--702 (2024)
+
+\bibitem{ref8}
+Zhao, C.J., Li, D.L., Liu, G., et al.: Research on the development status and strategic objectives of smart agriculture. Strategic Study of CAE \textbf{20}(2), 1--8 (2018)
+
+\bibitem{ref9}
+Qin, C.Y., Chen, M., Zhang, M., et al.: Research progress on the application of computer vision technology in modern agriculture. Journal of Chinese Agricultural Mechanization \textbf{44}(12), 160--170 (2023)
+
+\bibitem{ref10}
+Wang, C., Zhang, M., Li, H., et al.: Research progress on automatic measurement technology of livestock body size. Transactions of the Chinese Society of Agricultural Engineering \textbf{38}(13), 255--268 (2022)
+
+\bibitem{ref11}
+Liang, J., Yuan, Z., Luo, X., et al.: A study on the 3D reconstruction strategy of a sheep body based on a Kinect v2 depth camera array. Animals \textbf{14}(17), 2457 (2024)
+
+\bibitem{ref12}
+Qi, C.R., Yi, L., Su, H., et al.: PointNet++: Deep hierarchical feature learning on point sets in a metric space. In: Proceedings of the 31st International Conference on Neural Information Processing Systems, pp. 5105--5114 (2017)
+
+\bibitem{ref13}
+Hao, H., Yang, J., Yin, L., et al.: An improved PointNet++ point cloud segmentation model applied to automatic measurement method of pig body size. Computers and Electronics in Agriculture \textbf{205}, 107560 (2023)
+
+\bibitem{ref14}
+Jiang, Y., Li, Z., Cao, J., et al.: Body parts segmentation and phenotypic trait extraction of pig using an improved point cloud segmentation network with multi-LiDAR. Computers and Electronics in Agriculture \textbf{237}, 110624 (2025)
+
+\bibitem{ref15}
+Nath, T., Mathis, A., Chen, A.C., et al.: Using DeepLabCut for 3D markerless pose estimation across species and behaviors. Nature Protocols \textbf{14}, 2152--2176 (2019)
+
+\bibitem{ref16}
+Karashchuk, P., Rupp, K.L., Dickinson, E.S., et al.: Anipose: A toolkit for stable markerless 3D pose estimation. Cell Reports \textbf{36}(13), 109730 (2021)
+
+\bibitem{ref17}
+Waldmann, U., Chan, A.H.H., Naik, H., et al.: 3D-MuPPET: 3D multi-pigeon pose estimation and tracking. International Journal of Computer Vision \textbf{132}, 4235--4252 (2024)
+
+\bibitem{ref18}
+An, L., Ren, J., Yu, T., et al.: Three-dimensional surface motion capture of multiple freely moving pigs using MAMMAL. Nature Communications \textbf{14}, 7727 (2023)
+
+\bibitem{ref19}
+Loper, M., Mahmood, N., Romero, J., et al.: SMPL: A skinned multi-person linear model. ACM Transactions on Graphics \textbf{34}(6), 248 (2015)
+
+\bibitem{ref20}
+Zuffi, S., Kanazawa, A., Jacobs, D.W., et al.: 3D Menagerie: Modeling the 3D shape and pose of animals. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 6365--6373 (2017)
+
+\bibitem{ref21}
+Zuffi, S., Kanazawa, A., Black, M.J.: Lions and tigers and bears: Capturing non-rigid, 3D, articulated shape from images. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, pp. 3955--3963 (2018)
+
+\bibitem{ref22}
+Zuffi, S., Kanazawa, A., Berger-Wolf, T., et al.: Three-D Safari: Learning to estimate zebra pose, shape, and texture from images in the wild. In: Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 5359--5368 (2019)
+
+\bibitem{ref23}
+Biggs, B., Boyne, O., Charles, J., et al.: Who left the dogs out? 3D animal reconstruction with expectation maximization in the loop. In: European Conference on Computer Vision, pp. 195--211 (2020)
+
+\bibitem{ref24}
+Li, C., Lee, G.H.: Coarse-to-fine animal pose and shape estimation. In: Advances in Neural Information Processing Systems, vol. 34, pp. 11757--11768 (2021)
+
+\bibitem{ref25}
+Rüegg, N., Zuffi, S., Schindler, K., et al.: BARC: Learning to regress 3D dog shape from images by exploiting breed information. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 3876--3884 (2022)
+
+\bibitem{ref26}
+Rüegg, N., Tripathi, S., Schindler, K., et al.: BITE: Beyond priors for improved three-D dog pose estimation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 8867--8876 (2023)
+
+\bibitem{ref27}
+Wu, S., Li, R., Jakab, T., et al.: MagicPony: Learning articulated 3D animals in the wild. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 8877--8886 (2023)
+
+\bibitem{ref28}
+Rong, Z.Y., He, Z.D., Zhu, T., et al.: Occluded pig pose estimation based on neural discrete representation learning. Transactions of the Chinese Society of Agricultural Engineering (in press)
+
+\bibitem{ref29}
+Fadeev, I., Streijger, F., Shortt, K., et al.: Gait analysis in swine, sheep, and goats after neurologic injury: Validation of a non-invasive kinematic analysis system. Journal of Neuroscience Methods \textbf{338}, 108703 (2020)
+
+\bibitem{ref30}
+Thorson, J.F., Lowe, J.B., Schroeder, A.L., et al.: Treadmill-based gait kinematics in the Yucatan mini pig: Locomotor parameters and kinematic patterns during bipedal and quadrupedal gait. Journal of Biomechanics \textbf{155}, 111627 (2023)
+
+\bibitem{ref31}
+Hildebrand, M.: The Quadrupedal Gaits of Vertebrates: The Timing of Limb Cycles During Locomotion. Biological Reviews \textbf{64}(2), 143--195 (1989)
+
+\bibitem{ref32}
+Mathis, A., Mamidanna, P., Cury, K.M., et al.: DeepLabCut: markerless pose estimation of user-defined body parts with deep learning. Nature Neuroscience \textbf{21}(9), 1281--1289 (2018)
+
+\bibitem{ref33}
+Graving, J.M., Chae, D., Naik, H., et al.: DeepPoseKit: a software toolkit for fast and robust animal pose estimation using deep learning. eLife \textbf{8}, e47994 (2019)
+
+\bibitem{ref34}
+Pereira, T.D., Shaevitz, J.W., Murthy, M.: Quantifying behavior to understand the brain. Nature Neuroscience \textbf{23}(12), 1537--1549 (2020)
+
+\bibitem{ref35}
+Kingma, D.P., Welling, M.: Auto-encoding variational Bayes. arXiv preprint arXiv:1312.6114 (2013)
+
+\bibitem{ref36}
+Oord, A.V.D., Vinyals, O., Kavukcuoglu, K.: Neural discrete representation learning. In: Advances in Neural Information Processing Systems, vol. 30, pp. 6306--6315 (2017)
+
+\end{thebibliography}
+
+\end{document}
